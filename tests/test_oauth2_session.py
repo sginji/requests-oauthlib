@@ -488,6 +488,29 @@ class OAuth2SessionTest(TestCase):
         with self.assertRaises(AttributeError):
             del sess.token
 
+    @mock.patch("time.time", new=lambda: fake_time)
+    def test_add_expires_at_from_expires_in(self):
+        """Test that expires_at is correctly calculated from expires_in"""
+        sess = OAuth2Session("someclientid")
+        now = fake_time
+        
+        # Test with expires_in as string (some providers send it this way)
+        token = {"access_token": "foo", "expires_in": "3600"}
+        updated_token = sess._add_expires_at(token)
+        self.assertIn('expires_at', updated_token)
+        self.assertAlmostEqual(updated_token['expires_at'], now + 3600, places=2)
+
+        # Test with expires_in as integer (spec-compliant format)
+        token = {"access_token": "foo", "expires_in": 3600}
+        updated_token = sess._add_expires_at(token)
+        self.assertIn('expires_at', updated_token)
+        self.assertAlmostEqual(updated_token['expires_at'], now + 3600, places=2)
+
+        # Test with missing expires_in (should not modify token)
+        token = {"access_token": "foo"}
+        updated_token = sess._add_expires_at(token)
+        self.assertNotIn('expires_at', updated_token)
+
     def test_authorized_false(self):
         sess = OAuth2Session("someclientid")
         self.assertFalse(sess.authorized)

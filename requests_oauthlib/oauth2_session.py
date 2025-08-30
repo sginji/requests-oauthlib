@@ -1,4 +1,5 @@
 import logging
+import time
 
 from oauthlib.common import generate_token, urldecode
 from oauthlib.oauth2 import WebApplicationClient, InsecureTransportError
@@ -170,6 +171,23 @@ class OAuth2Session(requests.Session):
         will succeed.
         """
         return bool(self.access_token)
+
+    def _add_expires_at(self, token):
+        """Add expires_at to token if expires_in is present and expires_at is not.
+        
+        OAuth2 responses often include expires_in (seconds until token expires) but
+        oauthlib expects expires_at (timestamp when token expires) for expiration checks.
+        
+        :param token: OAuth2 token dict
+        :return: Token dict with expires_at if expires_in was present
+        """
+        if token and 'expires_in' in token:
+            # Keep full precision of time.time() for accurate token expiration
+            # RFC 6749 requires expires_in to be 1*DIGIT, but some providers send it as string
+            expires_in = int(token['expires_in'])
+            # Keep float precision for expires_at since it's an internal field
+            token['expires_at'] = time.time() + expires_in
+        return token
 
     def authorization_url(self, url, state=None, **kwargs):
         """Form an authorization URL.
@@ -404,7 +422,7 @@ class OAuth2Session(requests.Session):
             r = hook(r)
 
         self._client.parse_request_body_response(r.text, scope=self.scope)
-        self.token = self._client.token
+        self.token = self._add_expires_at(self._client.token)
         log.debug("Obtained token %s.", self.token)
         return self.token
 
@@ -494,6 +512,7 @@ class OAuth2Session(requests.Session):
             r = hook(r)
 
         self.token = self._client.parse_request_body_response(r.text, scope=self.scope)
+        self.token = self._add_expires_at(self.token)
         if "refresh_token" not in self.token:
             log.debug("No new refresh token given. Re-using old.")
             self.token["refresh_token"] = refresh_token
